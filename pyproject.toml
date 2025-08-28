@@ -1,0 +1,22 @@
+[project]
+name = "demo-langchain"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain-community>=0.3.29",
+    "langchain>=0.3.27",
+    "langgraph>=0.6.6",
+    "langchain-openai>=0.3.32",
+    "python-dotenv>=1.1.1",
+    "langchain-tavily>=0.2.11",
+]
+[tool.ruff]
+line-length = 120
+select = [
+    "E",
+    "F",
+    "W",
+    "UP"
+]
