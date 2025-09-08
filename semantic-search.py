@@ -4,8 +4,8 @@ import time
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import OpenAIEmbeddings
+from langchain_qdrant import QdrantVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -28,18 +28,19 @@ def create_vector_store_in_batches(documents, embedding_model, batch_size=100, d
         print(f"--> 正在处理批次 {current_batch_num}/{total_batches} (文档 {i + 1} 到 {i + len(batch)})...")
 
         if vector_store is None:
-            # 对于第一个批次，使用 from_documents 创建向量存储
-            # 这是首次 API 调用
-            vector_store = InMemoryVectorStore.from_documents(documents=batch, embedding=embedding_model)
+            vector_store = QdrantVectorStore.from_documents(
+                documents=batch,
+                embedding=embedding_model,
+                collection_name="nke-10k-2023",
+                url=os.getenv("QDRANT_URL"),
+                api_key=os.getenv("QDRANT_API_KEY"),
+            )
         else:
-            # 对于后续批次，使用 add_documents 添加到现有存储
-            # 这是后续的 API 调用
             vector_store.add_documents(documents=batch)
 
         print(f"    批次 {current_batch_num} 处理完成。")
 
         if current_batch_num < total_batches:
-            # 如果不是最后一个批次，则等待以遵守速率限制
             print(f"    等待 {delay_seconds:.2f} 秒...")
             time.sleep(delay_seconds)
 
@@ -48,26 +49,42 @@ def create_vector_store_in_batches(documents, embedding_model, batch_size=100, d
 
 
 def main():
+    """load pdf, split, create vector store, and query"""
     print("start to test PyPDFLoader.")
     file_path = "./nke-10k-2023.pdf"
     loader = PyPDFLoader(file_path)
     docs = loader.load()
-    # print(len(docs))
-    # print(f"{docs[0].page_content[:200]}\n")
-    # print(docs[0].metadata)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, add_start_index=True)
     all_splits = text_splitter.split_documents(docs)
     print(len(all_splits))
     embeddings = OpenAIEmbeddings(
-        openai_api_base="https://api.siliconflow.cn/v1",  # SiliconFlow 的 endpoint
-        openai_api_key=os.getenv("SILICONFLOW_API_KEY"),  # 从环境变量读更安全
-        model="BAAI/bge-m3",  # 任意 SiliconFlow 支持的模型
-        # dimensions=None,  # 如需要固定维度，可传 int
+        openai_api_base="https://api.siliconflow.cn/v1",
+        openai_api_key=os.getenv("SILICONFLOW_API_KEY"),
+        model="BAAI/bge-m3",
     )
     vector_store = create_vector_store_in_batches(all_splits, embeddings, batch_size=10, delay_seconds=1)
-    results = vector_store.similarity_search("How many distribution centers does Nike have in the US?")
-    print(results[0])
+    results = vector_store.similarity_search_with_score("How many distribution centers does Nike have in the US?")
+    for doc, score in results:
+        print(f"* [SIM={score:3f}] {doc.page_content} [{doc.metadata}]")
+
+
+def main2():
+    """using existing collection"""
+    embeddings = OpenAIEmbeddings(
+        openai_api_base="https://api.siliconflow.cn/v1",
+        openai_api_key=os.getenv("SILICONFLOW_API_KEY"),
+        model="BAAI/bge-m3",
+    )
+    qdrant = QdrantVectorStore.from_existing_collection(
+        embedding=embeddings,
+        collection_name="nke-10k-2023",
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY"),
+    )
+    results = qdrant.similarity_search_with_score("How many distribution centers does Nike have in the US?")
+    for doc, score in results:
+        print(f"* [SIM={score:3f}] {doc.page_content} [{doc.metadata}]")
 
 
 if __name__ == "__main__":
-    main()
+    main2()
